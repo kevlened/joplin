@@ -3,7 +3,46 @@ var every = Array.prototype.every
 var rules = {}
 var alignMap = { left: ':---', right: '---:', center: ':---:' };
 
-let isCodeBlock_ = null;
+// The method ending in _ were copied from https://github.com/laurent22/joplin/blob/47072b3813f4a993e0693cf75c8151832c1ec21d/packages/turndown/src/utilities.js#L80-L116
+// This is to maintain compatibility with the original Turndown library.
+// 
+// To handle code that is presented as below (see https://github.com/laurent22/joplin/issues/573)
+//
+// <td class="code">
+//   <pre class="python">
+//     <span style="color: #ff7700;font-weight:bold;">def</span> ma_fonction
+//   </pre>
+// </td>
+function isCodeBlockSpecialCase1_(node) {
+  const parent = node.parentNode
+  if (!parent) return false;
+  return parent.classList && parent.classList.contains('code') && parent.nodeName === 'TD' && node.nodeName === 'PRE'
+}
+
+// To handle PRE tags that have a monospace font family. In that case
+// we assume it is a code block.
+function isCodeBlockSpecialCase2_(node) {
+  if (node.nodeName !== 'PRE') return false;
+
+  const style = node.getAttribute('style');
+  if (!style) return false;
+  const o = css.parse('pre {' + style + '}');
+  if (!o.stylesheet.rules.length) return;
+  const fontFamily = o.stylesheet.rules[0].declarations.find(d => d.property.toLowerCase() === 'font-family');
+  if (!fontFamily || !fontFamily.value) return false;
+  const isMonospace = fontFamily.value.split(',').map(e => e.trim().toLowerCase()).indexOf('monospace') >= 0;
+  return isMonospace;
+}
+
+function isCodeBlock_(node) {
+  if (isCodeBlockSpecialCase1_(node) || isCodeBlockSpecialCase2_(node)) return true
+
+  return (
+    node.nodeName === 'PRE' &&
+    node.firstChild &&
+    node.firstChild.nodeName === 'CODE'
+  )
+}
 
 // We need to cache the result of tableShouldBeSkipped() as it is expensive.
 // Caching it means we went from about 9000 ms for rendering down to 90 ms.
@@ -260,8 +299,6 @@ function tableColCount(node) {
 }
 
 export default function tables (turndownService) {
-  isCodeBlock_ = turndownService.isCodeBlock;
-
   turndownService.keep(function (node) {
     if (node.nodeName === 'TABLE' && tableShouldBeHtml(node, turndownService.options)) return true;
     return false;
